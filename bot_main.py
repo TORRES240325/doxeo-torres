@@ -2135,6 +2135,8 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
     if not command_info:
         return
 
+    command_cost = float(command_info.get('cost', 0) or 0)
+
     if command_name in POSTMAN_V17_UNSUPPORTED_COMMANDS:
         await update.message.reply_text(
             _unsupported_api_message(command_name),
@@ -2184,7 +2186,7 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(f"❌ {parse_message}")
         return
 
-    has_credit, credit_message = _has_credits(update.effective_user.id, float(command_info['cost']))
+    has_credit, credit_message = _has_credits(update.effective_user.id, command_cost)
     if not has_credit:
         await update.message.reply_text(
             f"❌ {credit_message}",
@@ -2209,7 +2211,7 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
         await wait_message.edit_text("❌ La API no devolvió una respuesta válida.")
         return
 
-    can_pay, message, remaining = _charge_credits(update.effective_user.id, float(command_info['cost']))
+    can_pay, message, remaining = _charge_credits(update.effective_user.id, command_cost)
     if not can_pay:
         await wait_message.edit_text(f"❌ {message}")
         return

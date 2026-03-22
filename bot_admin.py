@@ -1,5 +1,6 @@
 import os
 import logging
+import html
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
@@ -38,6 +39,7 @@ SALE_ESTADO_OPTIONS = ["APROBADO", "PENDIENTE", "ANULADO"]
 SALE_DETALLE_OPTIONS = ["Recarga manual", "Compra Telegram", "Sin detalle"]
 ADJUST_AMOUNT_OPTIONS = ["+5", "+10", "+20", "+50", "-5", "-10", "-20", "-50"]
 CREATE_USER_SALDO_OPTIONS = ["0", "5", "10", "20", "50", "100"]
+MAX_SOCIOS_LIST_ROWS = 200
 
 
 # =================================================================
@@ -455,34 +457,70 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not check_admin(update): return
 
     with get_session() as session_db:
-        usuarios = session_db.query(Usuario).all() 
+        usuarios = (
+            session_db.query(Usuario)
+            .order_by(Usuario.id.desc())
+            .limit(MAX_SOCIOS_LIST_ROWS + 1)
+            .all()
+        )
 
-    message = "**Socios Registrados (Perfil completo):**\n\n"
     if not usuarios:
-        message += "No hay socios registrados."
-    else:
-        for u in usuarios:
-            rol = "ADMIN" if u.es_admin else "CLIENTE"
-            alias = u.username
-            telegram_id = u.telegram_id if u.telegram_id is not None else "-"
-            fecha_registro = u.fecha_registro.strftime("%Y-%m-%d %H:%M:%S") if u.fecha_registro else "-"
-            plan = (u.plan or "FREE").upper()
-            estado = (u.estado or "ACTIVO").upper()
-            message += (
-                f"ID: `{u.id}`\n"
-                f"USUARIO: **{u.username}**\n"
-                f"ALIAS: `{alias}`\n"
-                f"TELEGRAM ID: `{telegram_id}`\n"
-                f"CREDITOS: `{u.saldo:.2f}`\n"
-                f"PLAN: `{plan}`\n"
-                f"ESTADO: `{estado}`\n"
-                f"ROL: `{rol}`\n"
-                f"KEY: `{u.login_key}`\n"
-                f"REGISTRO: `{fecha_registro}`\n"
-                "----------------------------------\n"
-            )
-    
-    await update.message.reply_text(message, parse_mode='Markdown', reply_markup=get_admin_keyboard())
+        await update.message.reply_text("No hay socios registrados.", reply_markup=get_admin_keyboard())
+        return
+
+    truncated = len(usuarios) > MAX_SOCIOS_LIST_ROWS
+    usuarios = usuarios[:MAX_SOCIOS_LIST_ROWS]
+
+    header = f"👤 <b>Socios registrados</b> (mostrando <code>{len(usuarios)}</code>)\n\n"
+    if truncated:
+        header += (
+            f"⚠️ Lista limitada a <code>{MAX_SOCIOS_LIST_ROWS}</code> socios más recientes para evitar saturación.\n\n"
+        )
+
+    chunks: list[str] = []
+    current_chunk = header
+    max_chunk_len = 3600
+
+    for u in usuarios:
+        rol = "ADMIN" if u.es_admin else "CLIENTE"
+        alias = u.username or "-"
+        telegram_id = str(u.telegram_id) if u.telegram_id is not None else "-"
+        fecha_registro = u.fecha_registro.strftime("%Y-%m-%d %H:%M:%S") if u.fecha_registro else "-"
+        plan = (u.plan or "FREE").upper()
+        estado = (u.estado or "ACTIVO").upper()
+        username_safe = html.escape(u.username or "-")
+        alias_safe = html.escape(alias)
+        key_safe = html.escape(u.login_key or "-")
+
+        row = (
+            f"ID: <code>{u.id}</code>\n"
+            f"USUARIO: <b>{username_safe}</b>\n"
+            f"ALIAS: <code>{alias_safe}</code>\n"
+            f"TELEGRAM ID: <code>{telegram_id}</code>\n"
+            f"CREDITOS: <code>{u.saldo:.2f}</code>\n"
+            f"PLAN: <code>{plan}</code>\n"
+            f"ESTADO: <code>{estado}</code>\n"
+            f"ROL: <code>{rol}</code>\n"
+            f"KEY: <code>{key_safe}</code>\n"
+            f"REGISTRO: <code>{fecha_registro}</code>\n"
+            "----------------------------------\n"
+        )
+
+        if len(current_chunk) + len(row) > max_chunk_len:
+            chunks.append(current_chunk)
+            current_chunk = row
+        else:
+            current_chunk += row
+
+    if current_chunk.strip():
+        chunks.append(current_chunk)
+
+    for idx, chunk in enumerate(chunks):
+        await update.message.reply_text(
+            chunk,
+            parse_mode='HTML',
+            reply_markup=get_admin_keyboard() if idx == len(chunks) - 1 else None,
+        )
 
 # Flujo: ➕ Crear Socio
 async def prompt_create_user_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
