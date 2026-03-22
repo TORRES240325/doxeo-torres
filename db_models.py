@@ -3,6 +3,7 @@ import logging
 import sys
 from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, BigInteger, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
+from sqlalchemy import text
 from datetime import datetime
 from dotenv import load_dotenv 
 
@@ -21,7 +22,10 @@ class Usuario(Base):
     login_key = Column(String(100), nullable=False) 
     saldo = Column(Float, default=0.00)
     es_admin = Column(Boolean, default=False)
+    plan = Column(String(20), default='FREE')
+    estado = Column(String(20), default='ACTIVO')
     fecha_registro = Column(DateTime, default=datetime.now)
+    compras = relationship("Compra", back_populates="usuario", cascade="all, delete-orphan")
 
 class Producto(Base):
     __tablename__ = 'productos'
@@ -41,6 +45,22 @@ class Key(Base):
     estado = Column(String(20), default='available') 
     producto = relationship("Producto", back_populates="keys")
 
+class Compra(Base):
+    __tablename__ = 'compras'
+    id = Column(Integer, primary_key=True)
+    nro_venta = Column(String(60), unique=True, nullable=False)
+    usuario_id = Column(Integer, ForeignKey('usuarios.id'), nullable=False)
+    estado = Column(String(30), default='APROBADO')
+    vendedor = Column(String(80), nullable=False)
+    tipo = Column(String(50), default='CRÉDITOS')
+    plan = Column(String(20), default='FREE')
+    cantidad = Column(Float, default=0.0)
+    recompensa = Column(String(80), default='-')
+    fecha = Column(DateTime, default=datetime.now)
+    detalle = Column(String(255), default='')
+
+    usuario = relationship("Usuario", back_populates="compras")
+
 
 # --- Conexión y Sesión (Lee DATABASE_URL de ENV) ---
 load_dotenv() 
@@ -56,16 +76,33 @@ def inicializar_db(engine=ENGINE):
     """Crea las tablas, y el usuario administrador si no existen."""
     Base.metadata.create_all(bind=engine) 
 
+    with engine.begin() as conn:
+        try:
+            conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'FREE'"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS estado VARCHAR(20) DEFAULT 'ACTIVO'"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE compras ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'FREE'"))
+        except Exception:
+            pass
+
     Session = sessionmaker(bind=engine)
     with Session() as session:
         if session.query(Usuario).filter(Usuario.es_admin == True).count() == 0:
             logging.info("Insertando USUARIO ADMINISTRADOR INICIAL: admin/adminpass")
-            admin_user = Usuario(username='admin', login_key='adminpass', saldo=1000.00, es_admin=True)
+            admin_user = Usuario(username='admin', login_key='adminpass', saldo=1000.00, es_admin=True, plan='DIAMOND', estado='ACTIVO')
             session.add(admin_user)
             session.commit()
             print("Base de datos inicializada con usuario administrador.")
         else:
-             print("Base de datos verificada. Usuario administrador existente.")
+            session.query(Usuario).filter(Usuario.plan.is_(None)).update({Usuario.plan: 'FREE'}, synchronize_session=False)
+            session.query(Usuario).filter(Usuario.estado.is_(None)).update({Usuario.estado: 'ACTIVO'}, synchronize_session=False)
+            session.commit()
+            print("Base de datos verificada. Usuario administrador existente.")
 
 
 if __name__ == '__main__':

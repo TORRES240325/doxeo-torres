@@ -1,10 +1,11 @@
 import os
 import logging
+from datetime import datetime
 from dotenv import load_dotenv
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
 from sqlalchemy.exc import IntegrityError
-from db_models import Usuario, Producto, Key, get_session, inicializar_db 
+from db_models import Usuario, Producto, Key, Compra, get_session, inicializar_db 
 
 # =================================================================
 # 1. Configuración Inicial (Lectura de Variables de Entorno)
@@ -24,9 +25,19 @@ logger = logging.getLogger(__name__)
 # --- Estados para ConversationHandlers ---
 ADJUST_USER_ID, ADJUST_AMOUNT = range(2)
 ADD_KEYS_PRODUCT, ADD_KEYS_LICENSES = range(2, 4)
-CREATE_USER_NAME, CREATE_USER_LOGIN_KEY, CREATE_USER_SALDO, CREATE_USER_ADMIN = range(4, 8)
-CREATE_PRODUCT_NAME, CREATE_PRODUCT_CATEGORY, CREATE_PRODUCT_PRICE, CREATE_PRODUCT_DESC = range(8, 12)
-DELETE_PRODUCT_ID = 12
+CREATE_USER_NAME, CREATE_USER_LOGIN_KEY, CREATE_USER_SALDO, CREATE_USER_ADMIN, CREATE_USER_PLAN = range(4, 9)
+CREATE_PRODUCT_NAME, CREATE_PRODUCT_CATEGORY, CREATE_PRODUCT_PRICE, CREATE_PRODUCT_DESC = range(9, 13)
+DELETE_PRODUCT_ID = 13
+SALE_USER_ID, SALE_CREDITS, SALE_VENDEDOR, SALE_TIPO, SALE_PLAN, SALE_ESTADO, SALE_DETALLE = range(14, 21)
+
+PLAN_OPTIONS = ["FREE", "STANDAR", "VIP", "GOLD", "DIAMOND"]
+SALE_CREDIT_OPTIONS = ["5", "10", "20", "50", "100", "200"]
+SALE_VENDEDOR_OPTIONS = ["Torres", "Admin", "Soporte"]
+SALE_TIPO_OPTIONS = ["CRÉDITOS", "PLAN", "BONO"]
+SALE_ESTADO_OPTIONS = ["APROBADO", "PENDIENTE", "ANULADO"]
+SALE_DETALLE_OPTIONS = ["Recarga manual", "Compra Telegram", "Sin detalle"]
+ADJUST_AMOUNT_OPTIONS = ["+5", "+10", "+20", "+50", "-5", "-10", "-20", "-50"]
+CREATE_USER_SALDO_OPTIONS = ["0", "5", "10", "20", "50", "100"]
 
 
 # =================================================================
@@ -119,15 +130,306 @@ async def admin_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE)
 def get_admin_keyboard():
     """Genera el teclado principal de administración."""
     keyboard = [
-        [KeyboardButton("💰 Ajustar Saldo"), KeyboardButton("👤 Listar Socios"), KeyboardButton("➕ Crear Socio")],
-        [KeyboardButton("📦 Gestión Productos"), KeyboardButton("🔑 Añadir Keys"), KeyboardButton("🗑️ Eliminar Producto")]
+        [KeyboardButton("💰 Ajustar Saldo"), KeyboardButton("🧾 Registrar Compra"), KeyboardButton("👤 Listar Socios")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+
+
+def _generate_sale_number() -> str:
+    return f"VTA-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+
+
+def _sale_inline_keyboard_users(usuarios: list[Usuario]) -> InlineKeyboardMarkup:
+    rows = []
+    for usuario in usuarios:
+        rows.append([InlineKeyboardButton(f"ID {usuario.id} | {usuario.username}", callback_data=f"sale:user:{usuario.id}")])
+    rows.append([InlineKeyboardButton("Cancelar", callback_data="sale:cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _sale_inline_cancel_only() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("Cancelar", callback_data="sale:cancel")]])
+
+
+async def _sale_edit_prompt(context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup: InlineKeyboardMarkup | None) -> None:
+    chat_id = context.user_data.get('sale_flow_chat_id')
+    message_id = context.user_data.get('sale_flow_message_id')
+    if not chat_id or not message_id:
+        return
+    await context.bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=message_id,
+        text=text,
+        parse_mode='Markdown',
+        reply_markup=reply_markup,
+    )
+
+
+async def sale_callback_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    return await cancel_conversation(update, context)
+
+
+def _sale_inline_keyboard_options(prefix: str, options: list[str]) -> InlineKeyboardMarkup:
+    rows = []
+    for idx, option in enumerate(options):
+        rows.append([InlineKeyboardButton(option, callback_data=f"sale:{prefix}:{idx}")])
+    rows.append([InlineKeyboardButton("Cancelar", callback_data="sale:cancel")])
+    return InlineKeyboardMarkup(rows)
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancela el flujo actual y vuelve al menú principal."""
     if not check_admin(update): return ConversationHandler.END
-    await update.message.reply_text("Operación cancelada. Volviendo al menú principal.", reply_markup=get_admin_keyboard())
+    target_message = update.message or (update.callback_query.message if update.callback_query else None)
+    if target_message:
+        await target_message.reply_text("Operación cancelada. Volviendo al menú principal.", reply_markup=get_admin_keyboard())
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def prompt_register_sale(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not check_admin(update):
+        return ConversationHandler.END
+
+    with get_session() as session_db:
+        usuarios = session_db.query(Usuario).order_by(Usuario.id.desc()).limit(20).all()
+
+    if not usuarios:
+        await update.message.reply_text("❌ No hay usuarios registrados para cargar compra.", reply_markup=get_admin_keyboard())
+        return ConversationHandler.END
+
+    context.user_data['sale_user_id'] = None
+    context.user_data['sale_credits'] = None
+    context.user_data['sale_vendedor'] = None
+    context.user_data['sale_tipo'] = None
+    context.user_data['sale_plan'] = None
+    context.user_data['sale_estado'] = None
+
+    flow_message = await update.message.reply_text(
+        "Selecciona el usuario para registrar la compra de créditos:",
+        parse_mode='Markdown',
+        reply_markup=_sale_inline_keyboard_users(usuarios)
+    )
+    context.user_data['sale_flow_chat_id'] = flow_message.chat_id
+    context.user_data['sale_flow_message_id'] = flow_message.message_id
+    return SALE_USER_ID
+
+
+async def sale_select_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    if data == "sale:cancel":
+        return await cancel_conversation(update, context)
+
+    try:
+        user_id = int(data.split(":")[-1])
+    except Exception:
+        await query.message.reply_text("❌ Opción no válida. Selecciona un usuario desde los botones.")
+        return SALE_USER_ID
+
+    with get_session() as session_db:
+        usuario = session_db.query(Usuario).filter_by(id=user_id).first()
+
+    if not usuario:
+        await _sale_edit_prompt(
+            context,
+            "❌ Usuario no encontrado. Selecciona un usuario válido:",
+            _sale_inline_keyboard_users([]),
+        )
+        return SALE_USER_ID
+
+    context.user_data['sale_user_id'] = user_id
+    await _sale_edit_prompt(
+        context,
+        f"Usuario seleccionado: **{usuario.username}**\n"
+        "Escribe la **cantidad de créditos** comprados (ej: 50):",
+        _sale_inline_cancel_only()
+    )
+    return SALE_CREDITS
+
+
+async def sale_get_credits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    text = (update.message.text or "").strip()
+    if text == "Cancelar":
+        return await cancel_conversation(update, context)
+
+    try:
+        credits = float(text)
+        if credits <= 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("❌ Cantidad no válida. Escribe un número mayor a 0 (ej: 50).")
+        return SALE_CREDITS
+
+    context.user_data['sale_credits'] = credits
+    await _sale_edit_prompt(
+        context,
+        "Selecciona el **vendedor**:",
+        _sale_inline_keyboard_options("vend", SALE_VENDEDOR_OPTIONS)
+    )
+    return SALE_VENDEDOR
+
+
+async def sale_get_vendedor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    if data == "sale:cancel":
+        return await cancel_conversation(update, context)
+
+    try:
+        idx = int(data.split(":")[-1])
+        vendedor = SALE_VENDEDOR_OPTIONS[idx]
+    except Exception:
+        await query.message.reply_text("❌ Vendedor no válido. Intenta nuevamente.")
+        return SALE_VENDEDOR
+
+    context.user_data['sale_vendedor'] = vendedor
+    await _sale_edit_prompt(
+        context,
+        "Selecciona el **tipo**:",
+        _sale_inline_keyboard_options("tipo", SALE_TIPO_OPTIONS)
+    )
+    return SALE_TIPO
+
+
+async def sale_get_tipo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    if data == "sale:cancel":
+        return await cancel_conversation(update, context)
+
+    try:
+        idx = int(data.split(":")[-1])
+        tipo = SALE_TIPO_OPTIONS[idx]
+    except Exception:
+        tipo = "CRÉDITOS"
+
+    context.user_data['sale_tipo'] = tipo
+    await _sale_edit_prompt(
+        context,
+        "Selecciona el **plan** agregado en esta compra:",
+        _sale_inline_keyboard_options("plan", PLAN_OPTIONS)
+    )
+    return SALE_PLAN
+
+
+async def sale_get_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    if data == "sale:cancel":
+        return await cancel_conversation(update, context)
+
+    try:
+        idx = int(data.split(":")[-1])
+        plan = PLAN_OPTIONS[idx]
+    except Exception:
+        plan = "FREE"
+
+    context.user_data['sale_plan'] = plan
+    await _sale_edit_prompt(
+        context,
+        "Selecciona el **estado**:",
+        _sale_inline_keyboard_options("estado", SALE_ESTADO_OPTIONS)
+    )
+    return SALE_ESTADO
+
+
+async def sale_get_estado(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    if data == "sale:cancel":
+        return await cancel_conversation(update, context)
+
+    try:
+        idx = int(data.split(":")[-1])
+        estado = SALE_ESTADO_OPTIONS[idx]
+    except Exception:
+        estado = "APROBADO"
+
+    context.user_data['sale_estado'] = estado
+    await _sale_edit_prompt(
+        context,
+        "Selecciona el **detalle** de la venta:",
+        _sale_inline_keyboard_options("detalle", SALE_DETALLE_OPTIONS)
+    )
+    return SALE_DETALLE
+
+
+async def sale_finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = context.user_data.get('sale_user_id')
+    credits = context.user_data.get('sale_credits')
+    vendedor = context.user_data.get('sale_vendedor', 'ADMIN')
+    tipo = context.user_data.get('sale_tipo', 'CRÉDITOS')
+    plan = (context.user_data.get('sale_plan') or 'FREE').upper()
+    estado = context.user_data.get('sale_estado', 'APROBADO')
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    if data == "sale:cancel":
+        return await cancel_conversation(update, context)
+    try:
+        idx = int(data.split(":")[-1])
+        detalle_raw = SALE_DETALLE_OPTIONS[idx]
+    except Exception:
+        detalle_raw = 'Sin detalle'
+
+    detalle = '' if detalle_raw == '-' or detalle_raw == 'Sin detalle' else detalle_raw
+
+    if not user_id or credits is None:
+        return await cancel_conversation(update, context)
+
+    db_session = get_session()
+    try:
+        usuario = db_session.query(Usuario).filter_by(id=user_id).first()
+        if not usuario:
+            await query.message.reply_text("❌ Usuario no encontrado al finalizar la venta.", reply_markup=get_admin_keyboard())
+            return ConversationHandler.END
+
+        nro_venta = _generate_sale_number()
+        compra = Compra(
+            nro_venta=nro_venta,
+            usuario_id=usuario.id,
+            estado=estado,
+            vendedor=vendedor,
+            tipo=tipo,
+            plan=plan,
+            cantidad=float(credits),
+            recompensa='-',
+            detalle=detalle,
+        )
+        usuario.saldo += float(credits)
+        usuario.plan = plan
+
+        db_session.add(compra)
+        db_session.commit()
+
+        await query.message.reply_text(
+            "✅ Compra registrada y créditos agregados correctamente.\n"
+            f"NRO VENTA: `{nro_venta}`\n"
+            f"USUARIO: **{usuario.username}**\n"
+            f"PLAN APLICADO: `{plan}`\n"
+            f"CREDITOS AGREGADOS: `{credits:.2f}`\n"
+            f"NUEVO SALDO: `{usuario.saldo:.2f}`",
+            parse_mode='Markdown',
+            reply_markup=get_admin_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"Error al registrar compra: {e}")
+        db_session.rollback()
+        await query.message.reply_text("❌ Error al registrar la compra. Usa /cancelar.", reply_markup=get_admin_keyboard())
+    finally:
+        db_session.close()
+
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -149,22 +451,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # =================================================================
 
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Muestra la lista de usuarios y su saldo."""
+    """Muestra la lista de usuarios y su información administrativa."""
     if not check_admin(update): return
 
     with get_session() as session_db:
         usuarios = session_db.query(Usuario).all() 
 
-    message = "**Socios Registrados (ID | Username | Saldo):**\n\n"
+    message = "**Socios Registrados (Perfil completo):**\n\n"
     if not usuarios:
         message += "No hay socios registrados."
     else:
         for u in usuarios:
-            admin_tag = " [ADMIN]" if u.es_admin else ""
+            rol = "ADMIN" if u.es_admin else "CLIENTE"
+            alias = u.username
+            telegram_id = u.telegram_id if u.telegram_id is not None else "-"
+            fecha_registro = u.fecha_registro.strftime("%Y-%m-%d %H:%M:%S") if u.fecha_registro else "-"
+            plan = (u.plan or "FREE").upper()
+            estado = (u.estado or "ACTIVO").upper()
             message += (
-                f"ID: `{u.id}` | **{u.username}**{admin_tag}\n"
-                f"   Saldo: `${u.saldo:.2f}`\n"
-                f"   Key: `{u.login_key}`\n"
+                f"ID: `{u.id}`\n"
+                f"USUARIO: **{u.username}**\n"
+                f"ALIAS: `{alias}`\n"
+                f"TELEGRAM ID: `{telegram_id}`\n"
+                f"CREDITOS: `{u.saldo:.2f}`\n"
+                f"PLAN: `{plan}`\n"
+                f"ESTADO: `{estado}`\n"
+                f"ROL: `{rol}`\n"
+                f"KEY: `{u.login_key}`\n"
+                f"REGISTRO: `{fecha_registro}`\n"
                 "----------------------------------\n"
             )
     
@@ -183,10 +497,22 @@ async def get_create_user_name(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def get_create_user_login_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['temp_login_key'] = update.message.text.strip()
-    await update.message.reply_text("Ingresa el **Saldo Inicial ($)** (ej: 50.00):", parse_mode='Markdown')
+    saldo_rows = [
+        [KeyboardButton(CREATE_USER_SALDO_OPTIONS[0]), KeyboardButton(CREATE_USER_SALDO_OPTIONS[1]), KeyboardButton(CREATE_USER_SALDO_OPTIONS[2])],
+        [KeyboardButton(CREATE_USER_SALDO_OPTIONS[3]), KeyboardButton(CREATE_USER_SALDO_OPTIONS[4]), KeyboardButton(CREATE_USER_SALDO_OPTIONS[5])],
+        [KeyboardButton("Cancelar")],
+    ]
+    await update.message.reply_text(
+        "Selecciona el **Saldo Inicial ($)**:",
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup(saldo_rows, resize_keyboard=True, one_time_keyboard=False)
+    )
     return CREATE_USER_SALDO
 
 async def get_create_user_saldo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if (update.message.text or "").strip() == "Cancelar":
+        return await cancel_conversation(update, context)
+
     try:
         saldo = float(update.message.text)
         context.user_data['temp_saldo'] = saldo
@@ -197,26 +523,48 @@ async def get_create_user_saldo(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("¿Será este socio un administrador? (Sí/No):", reply_markup=reply_markup)
         return CREATE_USER_ADMIN
     except ValueError:
-        await update.message.reply_text("❌ Saldo no válido. Ingresa un número (ej: 50.00).")
+        await update.message.reply_text("❌ Saldo no válido. Selecciona una opción de los botones.")
         return CREATE_USER_SALDO
 
+async def get_create_user_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    is_admin = (update.message.text or "").strip().lower() == 'sí'
+    context.user_data['temp_is_admin'] = is_admin
+
+    plan_rows = [[KeyboardButton(plan)] for plan in PLAN_OPTIONS]
+    plan_rows.append([KeyboardButton("Cancelar")])
+    await update.message.reply_text(
+        "Selecciona el **plan** del usuario:",
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup(plan_rows, resize_keyboard=True, one_time_keyboard=False)
+    )
+    return CREATE_USER_PLAN
+
+
 async def finish_create_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    is_admin = update.message.text.lower() == 'sí'
-    
+    plan = (update.message.text or "").strip().upper()
+    if plan == "CANCELAR":
+        return await cancel_conversation(update, context)
+    if plan not in PLAN_OPTIONS:
+        await update.message.reply_text("❌ Selecciona un plan válido usando los botones.")
+        return CREATE_USER_PLAN
+
     db_session = get_session()
     try:
         nuevo_usuario = Usuario(
             username=context.user_data['temp_username'],
             login_key=context.user_data['temp_login_key'],
             saldo=context.user_data['temp_saldo'],
-            es_admin=is_admin
+            es_admin=bool(context.user_data.get('temp_is_admin', False)),
+            plan=plan,
+            estado='ACTIVO',
         )
         db_session.add(nuevo_usuario)
         db_session.commit()
         
         await update.message.reply_text(
             f"✅ Socio **{nuevo_usuario.username}** creado exitosamente:\n"
-            f"Key: `{nuevo_usuario.login_key}` | Saldo: `${nuevo_usuario.saldo:.2f}`", 
+            f"Key: `{nuevo_usuario.login_key}` | Saldo: `${nuevo_usuario.saldo:.2f}`\n"
+            f"Plan: `{nuevo_usuario.plan}` | Estado: `{nuevo_usuario.estado}`", 
             parse_mode='Markdown', 
             reply_markup=get_admin_keyboard()
         )
@@ -236,18 +584,33 @@ async def finish_create_user(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # Flujo: 💰 Ajustar Saldo
 async def prompt_adjust_saldo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not check_admin(update): return ConversationHandler.END
+
+    with get_session() as session_db:
+        usuarios = session_db.query(Usuario).order_by(Usuario.id.desc()).limit(20).all()
+
+    if not usuarios:
+        await update.message.reply_text("❌ No hay usuarios registrados para ajustar saldo.", reply_markup=get_admin_keyboard())
+        return ConversationHandler.END
+
+    rows = []
+    for usuario in usuarios:
+        rows.append([KeyboardButton(f"ID {usuario.id} | {usuario.username}")])
+    rows.append([KeyboardButton("Cancelar")])
+
     await update.message.reply_text(
-        "Ingresa el **ID** del Socio cuyo saldo quieres ajustar:\n"
-        "O escribe /cancelar para volver.",
+        "Selecciona el usuario cuyo saldo quieres ajustar:",
         parse_mode='Markdown',
-        reply_markup=ReplyKeyboardRemove()
+        reply_markup=ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=False)
     )
     return ADJUST_USER_ID
 
 async def select_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id_input = update.message.text
+    text = (update.message.text or "").strip()
+    if text == "Cancelar":
+        return await cancel_conversation(update, context)
+
     try:
-        user_id = int(user_id_input)
+        user_id = int(text.split("|")[0].replace("ID", "").strip())
         
         with get_session() as session_db:
             usuario = session_db.query(Usuario).filter_by(id=user_id).first()
@@ -256,20 +619,30 @@ async def select_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 return ADJUST_USER_ID
 
             context.user_data['user_to_adjust_id'] = user_id
+            amount_rows = [
+                [KeyboardButton(ADJUST_AMOUNT_OPTIONS[0]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[1]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[2]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[3])],
+                [KeyboardButton(ADJUST_AMOUNT_OPTIONS[4]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[5]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[6]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[7])],
+                [KeyboardButton("Cancelar")],
+            ]
             
             await update.message.reply_text(
                 f"Socio: **{usuario.username}** (Saldo actual: `${usuario.saldo:.2f}`)\n"
-                "Ingresa el **monto a ajustar** (Ej: `10.00` para agregar, `-5.50` para restar).",
-                parse_mode='Markdown'
+                "Selecciona el **monto a ajustar**:",
+                parse_mode='Markdown',
+                reply_markup=ReplyKeyboardMarkup(amount_rows, resize_keyboard=True, one_time_keyboard=False)
             )
             return ADJUST_AMOUNT
     except ValueError:
-        await update.message.reply_text("❌ Por favor, ingresa solo el número ID.")
+        await update.message.reply_text("❌ Opción no válida. Selecciona un usuario desde los botones.")
         return ADJUST_USER_ID
 
 async def adjust_saldo_final(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    text = (update.message.text or "").strip()
+    if text == "Cancelar":
+        return await cancel_conversation(update, context)
+
     try:
-        monto = float(update.message.text)
+        monto = float(text)
         user_id = context.user_data.get('user_to_adjust_id')
         
         if not user_id: return await cancel_conversation(update, context)
@@ -290,7 +663,7 @@ async def adjust_saldo_final(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 )
     
     except ValueError:
-        await update.message.reply_text("❌ Monto no válido. Ingresa un número (ej: 10.00 o -5.50).")
+        await update.message.reply_text("❌ Monto no válido. Selecciona un valor usando los botones.")
         return ADJUST_AMOUNT
     except Exception as e:
         logger.error(f"Error al ajustar saldo: {e}")
@@ -562,6 +935,26 @@ def main_admin() -> None:
     application.add_handler(MessageHandler(filters.Regex("^👤 Listar Socios$"), list_users))
     application.add_handler(MessageHandler(filters.Regex("^📦 Gestión Productos$"), manage_products_menu))
 
+    # Flujo de Registro de Compra/Recarga
+    sale_conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🧾 Registrar Compra$"), prompt_register_sale)],
+        states={
+            SALE_USER_ID: [CallbackQueryHandler(sale_select_user, pattern=r"^sale:(user:\d+|cancel)$")],
+            SALE_CREDITS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, sale_get_credits),
+                CallbackQueryHandler(sale_callback_cancel, pattern=r"^sale:cancel$")
+            ],
+            SALE_VENDEDOR: [CallbackQueryHandler(sale_get_vendedor, pattern=r"^sale:(vend:\d+|cancel)$")],
+            SALE_TIPO: [CallbackQueryHandler(sale_get_tipo, pattern=r"^sale:(tipo:\d+|cancel)$")],
+            SALE_PLAN: [CallbackQueryHandler(sale_get_plan, pattern=r"^sale:(plan:\d+|cancel)$")],
+            SALE_ESTADO: [CallbackQueryHandler(sale_get_estado, pattern=r"^sale:(estado:\d+|cancel)$")],
+            SALE_DETALLE: [CallbackQueryHandler(sale_finish, pattern=r"^sale:(detalle:\d+|cancel)$")],
+        },
+        fallbacks=[CommandHandler("cancelar", cancel_conversation), CommandHandler("start", start)],
+        per_user=True
+    )
+    application.add_handler(sale_conv_handler)
+
     # Flujo de Ajuste de Saldo
     saldo_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^💰 Ajustar Saldo$"), prompt_adjust_saldo)],
@@ -581,7 +974,8 @@ def main_admin() -> None:
             CREATE_USER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_create_user_name)],
             CREATE_USER_LOGIN_KEY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_create_user_login_key)],
             CREATE_USER_SALDO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_create_user_saldo)],
-            CREATE_USER_ADMIN: [MessageHandler(filters.Regex("^(Sí|No)$"), finish_create_user)],
+            CREATE_USER_ADMIN: [MessageHandler(filters.Regex("^(Sí|No)$"), get_create_user_admin)],
+            CREATE_USER_PLAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, finish_create_user)],
         },
         fallbacks=[CommandHandler("cancelar", cancel_conversation), CommandHandler("start", start)],
         per_user=True
