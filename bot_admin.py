@@ -975,7 +975,7 @@ def main_admin() -> None:
 
     # Flujo de Registro de Compra/Recarga
     sale_conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^🧾 Registrar Compra$"), prompt_register_sale)],
+        entry_points=[MessageHandler(filters.Regex(r"^(?:🧾\s*)?Registrar Compra\s*$"), prompt_register_sale)],
         states={
             SALE_USER_ID: [CallbackQueryHandler(sale_select_user, pattern=r"^sale:(user:\d+|cancel)$")],
             SALE_CREDITS: [
