@@ -219,13 +219,16 @@ async def sale_select_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return SALE_USER_ID
 
     with get_session() as session_db:
-        usuario = session_db.query(Usuario).filter_by(id=user_id).first()
+        usuario = (
+            session_db.query(Usuario).filter_by(id=user_id).first()
+            or session_db.query(Usuario).filter_by(telegram_id=user_id).first()
+        )
 
     if not usuario:
-        await update.message.reply_text(f"❌ No existe ningún usuario con ID `{user_id}`. Intenta otro ID:", parse_mode='Markdown')
+        await update.message.reply_text(f"❌ No existe ningún usuario con ID `{user_id}`.\nPuedes usar el ID interno (ej: 3) o el Telegram ID.", parse_mode='Markdown')
         return SALE_USER_ID
 
-    context.user_data['sale_user_id'] = user_id
+    context.user_data['sale_user_id'] = usuario.id
 
     flow_message = await update.message.reply_text(
         f"✅ Usuario encontrado:\n"
@@ -633,13 +636,16 @@ async def select_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ADJUST_USER_ID
 
     with get_session() as session_db:
-        usuario = session_db.query(Usuario).filter_by(id=user_id).first()
+        usuario = (
+            session_db.query(Usuario).filter_by(id=user_id).first()
+            or session_db.query(Usuario).filter_by(telegram_id=user_id).first()
+        )
 
     if not usuario:
-        await update.message.reply_text(f"❌ No existe ningún usuario con ID `{user_id}`. Intenta otro ID:", parse_mode='Markdown')
+        await update.message.reply_text(f"❌ No existe ningún usuario con ID `{user_id}`.\nPuedes usar el ID interno (ej: 3) o el Telegram ID.", parse_mode='Markdown')
         return ADJUST_USER_ID
 
-    context.user_data['user_to_adjust_id'] = user_id
+    context.user_data['user_to_adjust_id'] = usuario.id
     amount_rows = [
         [KeyboardButton(ADJUST_AMOUNT_OPTIONS[0]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[1]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[2]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[3])],
         [KeyboardButton(ADJUST_AMOUNT_OPTIONS[4]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[5]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[6]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[7])],
