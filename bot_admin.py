@@ -259,10 +259,10 @@ async def sale_get_credits(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return SALE_CREDITS
 
     context.user_data['sale_credits'] = credits
-    await _sale_edit_prompt(
-        context,
-        "Selecciona el **vendedor**:",
-        _sale_inline_keyboard_options("vend", SALE_VENDEDOR_OPTIONS)
+    await update.message.reply_text(
+        "Selecciona el *vendedor*:",
+        parse_mode='Markdown',
+        reply_markup=_sale_inline_keyboard_options("vend", SALE_VENDEDOR_OPTIONS)
     )
     return SALE_VENDEDOR
 
@@ -283,10 +283,10 @@ async def sale_get_vendedor(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return SALE_VENDEDOR
 
     context.user_data['sale_vendedor'] = vendedor
-    await _sale_edit_prompt(
-        context,
-        "Selecciona el **tipo**:",
-        _sale_inline_keyboard_options("tipo", SALE_TIPO_OPTIONS)
+    await query.message.reply_text(
+        "Selecciona el *tipo*:",
+        parse_mode='Markdown',
+        reply_markup=_sale_inline_keyboard_options("tipo", SALE_TIPO_OPTIONS)
     )
     return SALE_TIPO
 
@@ -306,10 +306,10 @@ async def sale_get_tipo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         tipo = "CRÉDITOS"
 
     context.user_data['sale_tipo'] = tipo
-    await _sale_edit_prompt(
-        context,
-        "Selecciona el **plan** agregado en esta compra:",
-        _sale_inline_keyboard_options("plan", PLAN_OPTIONS)
+    await query.message.reply_text(
+        "Selecciona el *plan* agregado en esta compra:",
+        parse_mode='Markdown',
+        reply_markup=_sale_inline_keyboard_options("plan", PLAN_OPTIONS)
     )
     return SALE_PLAN
 
@@ -329,10 +329,10 @@ async def sale_get_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         plan = "FREE"
 
     context.user_data['sale_plan'] = plan
-    await _sale_edit_prompt(
-        context,
-        "Selecciona el **estado**:",
-        _sale_inline_keyboard_options("estado", SALE_ESTADO_OPTIONS)
+    await query.message.reply_text(
+        "Selecciona el *estado*:",
+        parse_mode='Markdown',
+        reply_markup=_sale_inline_keyboard_options("estado", SALE_ESTADO_OPTIONS)
     )
     return SALE_ESTADO
 
@@ -352,10 +352,10 @@ async def sale_get_estado(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         estado = "APROBADO"
 
     context.user_data['sale_estado'] = estado
-    await _sale_edit_prompt(
-        context,
-        "Selecciona el **detalle** de la venta:",
-        _sale_inline_keyboard_options("detalle", SALE_DETALLE_OPTIONS)
+    await query.message.reply_text(
+        "Selecciona el *detalle* de la venta:",
+        parse_mode='Markdown',
+        reply_markup=_sale_inline_keyboard_options("detalle", SALE_DETALLE_OPTIONS)
     )
     return SALE_DETALLE
 
