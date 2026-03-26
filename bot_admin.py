@@ -192,13 +192,6 @@ async def prompt_register_sale(update: Update, context: ContextTypes.DEFAULT_TYP
     if not check_admin(update):
         return ConversationHandler.END
 
-    with get_session() as session_db:
-        usuarios = session_db.query(Usuario).order_by(Usuario.id.desc()).limit(20).all()
-
-    if not usuarios:
-        await update.message.reply_text("❌ No hay usuarios registrados para cargar compra.", reply_markup=get_admin_keyboard())
-        return ConversationHandler.END
-
     context.user_data['sale_user_id'] = None
     context.user_data['sale_credits'] = None
     context.user_data['sale_vendedor'] = None
@@ -206,48 +199,46 @@ async def prompt_register_sale(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data['sale_plan'] = None
     context.user_data['sale_estado'] = None
 
-    flow_message = await update.message.reply_text(
-        "Selecciona el usuario para registrar la compra de créditos:",
+    await update.message.reply_text(
+        "🧾 *Registrar Compra*\n\nEscribe el *ID* del usuario:",
         parse_mode='Markdown',
-        reply_markup=_sale_inline_keyboard_users(usuarios)
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton("Cancelar")]], resize_keyboard=True)
     )
-    context.user_data['sale_flow_chat_id'] = flow_message.chat_id
-    context.user_data['sale_flow_message_id'] = flow_message.message_id
     return SALE_USER_ID
 
 
 async def sale_select_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data or ""
-    if data == "sale:cancel":
+    text = (update.message.text or "").strip()
+    if text.lower() == "cancelar":
         return await cancel_conversation(update, context)
 
     try:
-        user_id = int(data.split(":")[-1])
-    except Exception:
-        await query.message.reply_text("❌ Opción no válida. Selecciona un usuario desde los botones.")
+        user_id = int(text)
+    except ValueError:
+        await update.message.reply_text("❌ Escribe solo el número del ID (ej: `12`).", parse_mode='Markdown')
         return SALE_USER_ID
 
     with get_session() as session_db:
         usuario = session_db.query(Usuario).filter_by(id=user_id).first()
 
     if not usuario:
-        await _sale_edit_prompt(
-            context,
-            "❌ Usuario no encontrado. Selecciona un usuario válido:",
-            _sale_inline_keyboard_users([]),
-        )
+        await update.message.reply_text(f"❌ No existe ningún usuario con ID `{user_id}`. Intenta otro ID:", parse_mode='Markdown')
         return SALE_USER_ID
 
     context.user_data['sale_user_id'] = user_id
-    await _sale_edit_prompt(
-        context,
-        f"Usuario seleccionado: **{usuario.username}**\n"
-        "Escribe la **cantidad de créditos** comprados (ej: 50):",
-        _sale_inline_cancel_only()
+
+    flow_message = await update.message.reply_text(
+        f"✅ Usuario encontrado:\n"
+        f"• ID: `{usuario.id}`\n"
+        f"• Usuario: *{usuario.username}*\n"
+        f"• Saldo actual: `${usuario.saldo:.2f}`\n"
+        f"• Plan: `{(usuario.plan or 'FREE').upper()}`\n\n"
+        "Escribe la *cantidad de créditos* a agregar (ej: 50):",
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton("Cancelar")]], resize_keyboard=True)
     )
+    context.user_data['sale_flow_chat_id'] = flow_message.chat_id
+    context.user_data['sale_flow_message_id'] = flow_message.message_id
     return SALE_CREDITS
 
 
@@ -623,56 +614,49 @@ async def finish_create_user(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def prompt_adjust_saldo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not check_admin(update): return ConversationHandler.END
 
-    with get_session() as session_db:
-        usuarios = session_db.query(Usuario).order_by(Usuario.id.desc()).limit(20).all()
-
-    if not usuarios:
-        await update.message.reply_text("❌ No hay usuarios registrados para ajustar saldo.", reply_markup=get_admin_keyboard())
-        return ConversationHandler.END
-
-    rows = []
-    for usuario in usuarios:
-        rows.append([KeyboardButton(f"ID {usuario.id} | {usuario.username}")])
-    rows.append([KeyboardButton("Cancelar")])
-
     await update.message.reply_text(
-        "Selecciona el usuario cuyo saldo quieres ajustar:",
+        "💰 *Ajustar Saldo*\n\nEscribe el *ID* del usuario:",
         parse_mode='Markdown',
-        reply_markup=ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=False)
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton("Cancelar")]], resize_keyboard=True)
     )
     return ADJUST_USER_ID
 
 async def select_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = (update.message.text or "").strip()
-    if text == "Cancelar":
+    if text.lower() == "cancelar":
         return await cancel_conversation(update, context)
 
     try:
-        user_id = int(text.split("|")[0].replace("ID", "").strip())
-        
-        with get_session() as session_db:
-            usuario = session_db.query(Usuario).filter_by(id=user_id).first()
-            if not usuario:
-                await update.message.reply_text("❌ ID de usuario no encontrado. Ingresa un ID válido.")
-                return ADJUST_USER_ID
-
-            context.user_data['user_to_adjust_id'] = user_id
-            amount_rows = [
-                [KeyboardButton(ADJUST_AMOUNT_OPTIONS[0]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[1]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[2]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[3])],
-                [KeyboardButton(ADJUST_AMOUNT_OPTIONS[4]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[5]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[6]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[7])],
-                [KeyboardButton("Cancelar")],
-            ]
-            
-            await update.message.reply_text(
-                f"Socio: **{usuario.username}** (Saldo actual: `${usuario.saldo:.2f}`)\n"
-                "Selecciona el **monto a ajustar**:",
-                parse_mode='Markdown',
-                reply_markup=ReplyKeyboardMarkup(amount_rows, resize_keyboard=True, one_time_keyboard=False)
-            )
-            return ADJUST_AMOUNT
+        user_id = int(text)
     except ValueError:
-        await update.message.reply_text("❌ Opción no válida. Selecciona un usuario desde los botones.")
+        await update.message.reply_text("❌ Escribe solo el número del ID (ej: `12`).", parse_mode='Markdown')
         return ADJUST_USER_ID
+
+    with get_session() as session_db:
+        usuario = session_db.query(Usuario).filter_by(id=user_id).first()
+
+    if not usuario:
+        await update.message.reply_text(f"❌ No existe ningún usuario con ID `{user_id}`. Intenta otro ID:", parse_mode='Markdown')
+        return ADJUST_USER_ID
+
+    context.user_data['user_to_adjust_id'] = user_id
+    amount_rows = [
+        [KeyboardButton(ADJUST_AMOUNT_OPTIONS[0]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[1]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[2]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[3])],
+        [KeyboardButton(ADJUST_AMOUNT_OPTIONS[4]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[5]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[6]), KeyboardButton(ADJUST_AMOUNT_OPTIONS[7])],
+        [KeyboardButton("Cancelar")],
+    ]
+
+    await update.message.reply_text(
+        f"✅ Usuario encontrado:\n"
+        f"• ID: `{usuario.id}`\n"
+        f"• Usuario: *{usuario.username}*\n"
+        f"• Saldo actual: `${usuario.saldo:.2f}`\n"
+        f"• Plan: `{(usuario.plan or 'FREE').upper()}`\n\n"
+        "Selecciona el *monto a ajustar*:",
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardMarkup(amount_rows, resize_keyboard=True, one_time_keyboard=False)
+    )
+    return ADJUST_AMOUNT
 
 async def adjust_saldo_final(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = (update.message.text or "").strip()
@@ -977,7 +961,7 @@ def main_admin() -> None:
     sale_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex(r"^(?:🧾\s*)?Registrar Compra\s*$"), prompt_register_sale)],
         states={
-            SALE_USER_ID: [CallbackQueryHandler(sale_select_user, pattern=r"^sale:(user:\d+|cancel)$")],
+            SALE_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, sale_select_user)],
             SALE_CREDITS: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, sale_get_credits),
                 CallbackQueryHandler(sale_callback_cancel, pattern=r"^sale:cancel$")
