@@ -987,7 +987,8 @@ def main_admin() -> None:
             CommandHandler("start", start),
             MessageHandler(filters.Regex(r"^[Cc]ancelar$"), cancel_conversation),
         ],
-        per_user=True
+        per_user=True,
+        per_message=False,
     )
     application.add_handler(sale_conv_handler)
 

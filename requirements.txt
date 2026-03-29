@@ -1,5 +1,5 @@
 # Ejemplo de requirements.txt
-python-telegram-bot
+python-telegram-bot>=20.0,<21.0
 SQLAlchemy
 python-dotenv
 psycopg2-binary
