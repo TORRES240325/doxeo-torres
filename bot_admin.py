@@ -52,24 +52,16 @@ def check_admin(update: Update) -> bool:
     """Verifica si el usuario está logueado y tiene permisos de administrador."""
     if not update.effective_user:
         return False
-
-    user_id_telegram = update.effective_user.id
-    
-    with get_session() as session_db:
-        usuario = session_db.query(Usuario).filter_by(
-            telegram_id=user_id_telegram, 
-            es_admin=True
-        ).first()
-
-    if usuario:
-        return True
-    else:
-        if update.message and update.message.text and not update.message.text.lower().startswith('/login'):
-            update.message.reply_text(
-                "❌ Acceso denegado. Debes iniciar sesión como administrador.\n"
-                "Usa el formato: `/login [USERNAME] [CLAVE]`",
-                parse_mode='Markdown'
-            )
+    try:
+        user_id_telegram = update.effective_user.id
+        with get_session() as session_db:
+            usuario = session_db.query(Usuario).filter_by(
+                telegram_id=user_id_telegram,
+                es_admin=True
+            ).first()
+        return usuario is not None
+    except Exception as e:
+        logger.error(f"Error en check_admin: {e}")
         return False
 
 async def admin_login_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -434,7 +426,13 @@ async def sale_finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Muestra el menú principal si es el administrador."""
     if not check_admin(update):
-        return ConversationHandler.END 
+        if update.message:
+            await update.message.reply_text(
+                "❌ Acceso denegado.\n"
+                "Usa `/login USUARIO CLAVE` para iniciar sesión.",
+                parse_mode='Markdown'
+            )
+        return ConversationHandler.END
 
     await update.message.reply_text(
         "👋 **Panel de Administración**\nElige una opción:",
