@@ -8,6 +8,7 @@ import time
 import base64
 import difflib
 import html
+import traceback
 from io import BytesIO
 from urllib import request, error
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, InputMediaPhoto
@@ -2717,8 +2718,21 @@ def main() -> None:
 
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
 
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.error("Excepción no capturada:", exc_info=context.error)
+        tb = "".join(traceback.format_exception(None, context.error, context.error.__traceback__))
+        logger.error(f"Traceback:\n{tb}")
+
+    application.add_error_handler(error_handler)
     logger.info("El Bot de Telegram se está iniciando...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        connect_timeout=20,
+        read_timeout=20,
+        write_timeout=20,
+        pool_timeout=20,
+    )
 
 
 if __name__ == '__main__':

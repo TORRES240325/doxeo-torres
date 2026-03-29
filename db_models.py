@@ -65,7 +65,14 @@ class Compra(Base):
 # --- Conexión y Sesión (Lee DATABASE_URL de ENV) ---
 load_dotenv() 
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///socios_bot.db') 
-ENGINE = create_engine(DATABASE_URL, pool_pre_ping=True)
+ENGINE = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+    pool_recycle=300,
+    pool_timeout=30,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=ENGINE)
 
 def get_session():
