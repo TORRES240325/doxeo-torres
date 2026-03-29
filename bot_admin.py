@@ -1,4 +1,6 @@
 import os
+import sys
+import time
 import logging
 import html
 import traceback
@@ -1080,16 +1082,24 @@ def main_admin() -> None:
     # Manejador general para texto no reconocido
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown))
 
+    consecutive_conflicts = [0]
+
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         if isinstance(context.error, Conflict):
-            logger.warning("409 Conflict: otra instancia corriendo, reintentando...")
+            consecutive_conflicts[0] += 1
+            logger.warning(f"409 Conflict #{consecutive_conflicts[0]}: otra instancia corriendo, reintentando...")
+            if consecutive_conflicts[0] >= 15:
+                logger.error("409 Conflict persistente - reiniciando proceso para liberar instancia...")
+                sys.exit(1)
             return
+        consecutive_conflicts[0] = 0
         logger.error("Excepción no capturada (admin):", exc_info=context.error)
         tb = "".join(traceback.format_exception(None, context.error, context.error.__traceback__))
         logger.error(f"Traceback:\n{tb}")
 
     application.add_error_handler(error_handler)
-    logger.info("El Bot ADMINISTRADOR se está iniciando...")
+    logger.info("El Bot ADMINISTRADOR se está iniciando... (esperando 5s para liberar instancias viejas)")
+    time.sleep(5)
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True,
