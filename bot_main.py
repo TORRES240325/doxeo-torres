@@ -13,7 +13,7 @@ from io import BytesIO
 from urllib import request, error
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Conflict
 from telegram.request import HTTPXRequest
 from sqlalchemy.orm.exc import NoResultFound
 from db_models import Usuario, Producto, Key, Compra, inicializar_db, get_session 
@@ -2725,6 +2725,9 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
 
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if isinstance(context.error, Conflict):
+            logger.warning("409 Conflict: otra instancia corriendo, reintentando...")
+            return
         logger.error("Excepción no capturada:", exc_info=context.error)
         tb = "".join(traceback.format_exception(None, context.error, context.error.__traceback__))
         logger.error(f"Traceback:\n{tb}")

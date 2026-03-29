@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
 from telegram.request import HTTPXRequest
+from telegram.error import Conflict
 from sqlalchemy.exc import IntegrityError
 from db_models import Usuario, Producto, Key, Compra, get_session, inicializar_db 
 
@@ -1080,6 +1081,9 @@ def main_admin() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown))
 
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if isinstance(context.error, Conflict):
+            logger.warning("409 Conflict: otra instancia corriendo, reintentando...")
+            return
         logger.error("Excepción no capturada (admin):", exc_info=context.error)
         tb = "".join(traceback.format_exception(None, context.error, context.error.__traceback__))
         logger.error(f"Traceback:\n{tb}")
