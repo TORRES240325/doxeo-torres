@@ -329,7 +329,6 @@ async def _send_command_image(
                 caption=caption,
                 reply_markup=reply_markup,
                 reply_to_message_id=update.message.message_id,
-                allow_sending_without_reply=True,
             )
         return True
     except Exception as exc:
@@ -2286,7 +2285,6 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                 chat_id=update.effective_chat.id,
                 document=doc_url,
                 reply_to_message_id=update.message.message_id,
-                allow_sending_without_reply=True,
             )
         except Exception as exc:
             logger.warning(f"No se pudo enviar PDF {doc_url}: {exc}")
@@ -2297,7 +2295,6 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                 chat_id=update.effective_chat.id,
                 document=InputFile(BytesIO(raw), filename=filename),
                 reply_to_message_id=update.message.message_id,
-                allow_sending_without_reply=True,
             )
         except Exception as exc:
             logger.warning(f"No se pudo enviar PDF base64 {filename}: {exc}")
@@ -2341,8 +2338,7 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                     await update.message.reply_photo(
                         photo=first_photo,
                         reply_to_message_id=update.message.message_id,
-                        allow_sending_without_reply=True,
-                    )
+                            )
                     sent_photo = True
                 except Exception as exc:
                     logger.warning(f"No se pudo enviar imagen dnim {first_photo}: {exc}")
@@ -2353,8 +2349,7 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                     await update.message.reply_photo(
                         photo=InputFile(BytesIO(first_raw), filename=first_name),
                         reply_to_message_id=update.message.message_id,
-                        allow_sending_without_reply=True,
-                    )
+                            )
                     sent_photo = True
                 except Exception as exc:
                     logger.warning(f"No se pudo enviar imagen dnim base64 {first_name}: {exc}")
@@ -2363,7 +2358,6 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                 formatted_text,
                 parse_mode='HTML',
                 reply_to_message_id=update.message.message_id,
-                allow_sending_without_reply=True,
             )
             return
 
@@ -2389,8 +2383,7 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                         chat_id=update.effective_chat.id,
                         media=media_group,
                         reply_to_message_id=update.message.message_id,
-                        allow_sending_without_reply=True,
-                    )
+                            )
                     return
                 except Exception as exc:
                     logger.warning(f"No se pudo enviar álbum de imágenes {command_name}: {exc}")
@@ -2405,8 +2398,7 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                     caption=caption_text,
                     parse_mode='HTML',
                     reply_to_message_id=update.message.message_id,
-                    allow_sending_without_reply=True,
-                )
+                    )
                 sent_primary = True
             except Exception as exc:
                 logger.warning(f"No se pudo enviar imagen principal {first_photo}: {exc}")
@@ -2419,8 +2411,7 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                     caption=caption_text,
                     parse_mode='HTML',
                     reply_to_message_id=update.message.message_id,
-                    allow_sending_without_reply=True,
-                )
+                    )
                 sent_primary = True
             except Exception as exc:
                 logger.warning(f"No se pudo enviar imagen principal base64 {first_name}: {exc}")
@@ -2430,7 +2421,6 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                 formatted_text,
                 parse_mode='HTML',
                 reply_to_message_id=update.message.message_id,
-                allow_sending_without_reply=True,
             )
             return
 
@@ -2440,8 +2430,7 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                     chat_id=update.effective_chat.id,
                     photo=photo_url,
                     reply_to_message_id=update.message.message_id,
-                    allow_sending_without_reply=True,
-                )
+                    )
             except Exception as exc:
                 logger.warning(f"No se pudo enviar imagen {photo_url}: {exc}")
 
@@ -2451,8 +2440,7 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
                     chat_id=update.effective_chat.id,
                     photo=InputFile(BytesIO(raw), filename=filename),
                     reply_to_message_id=update.message.message_id,
-                    allow_sending_without_reply=True,
-                )
+                    )
             except Exception as exc:
                 logger.warning(f"No se pudo enviar imagen base64 {filename}: {exc}")
         return
