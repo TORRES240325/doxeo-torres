@@ -2144,7 +2144,6 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
             _unsupported_api_message(command_name),
             parse_mode='Markdown',
             reply_to_message_id=update.message.message_id,
-            allow_sending_without_reply=True,
         )
         return
 
@@ -2201,7 +2200,6 @@ async def catalog_command_router(update: Update, context: ContextTypes.DEFAULT_T
     wait_message = await update.message.reply_text(
         f"🔎 Consultando /{command_name} en la API...",
         reply_to_message_id=update.message.message_id,
-        allow_sending_without_reply=True,
     )
     ok, result = await asyncio.to_thread(_query_api_with_fallback, command_name, endpoint, payload)
 
