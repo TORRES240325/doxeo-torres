@@ -174,7 +174,6 @@ def _sale_inline_keyboard_options(prefix: str, options: list[str]) -> InlineKeyb
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancela el flujo actual y vuelve al menú principal."""
-    if not check_admin(update): return ConversationHandler.END
     target_message = update.message or (update.callback_query.message if update.callback_query else None)
     if target_message:
         await target_message.reply_text("Operación cancelada. Volviendo al menú principal.", reply_markup=get_admin_keyboard())
@@ -983,7 +982,11 @@ def main_admin() -> None:
             SALE_ESTADO: [CallbackQueryHandler(sale_get_estado, pattern=r"^sale:(estado:\d+|cancel)$")],
             SALE_DETALLE: [CallbackQueryHandler(sale_finish, pattern=r"^sale:(detalle:\d+|cancel)$")],
         },
-        fallbacks=[CommandHandler("cancelar", cancel_conversation), CommandHandler("start", start)],
+        fallbacks=[
+            CommandHandler("cancelar", cancel_conversation),
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex(r"^[Cc]ancelar$"), cancel_conversation),
+        ],
         per_user=True
     )
     application.add_handler(sale_conv_handler)
@@ -995,7 +998,11 @@ def main_admin() -> None:
             ADJUST_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_user_id)],
             ADJUST_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, adjust_saldo_final)],
         },
-        fallbacks=[CommandHandler("cancelar", cancel_conversation), CommandHandler("start", start)],
+        fallbacks=[
+            CommandHandler("cancelar", cancel_conversation),
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex(r"^[Cc]ancelar$"), cancel_conversation),
+        ],
         per_user=True
     )
     application.add_handler(saldo_conv_handler)
@@ -1010,7 +1017,11 @@ def main_admin() -> None:
             CREATE_USER_ADMIN: [MessageHandler(filters.Regex("^(Sí|No)$"), get_create_user_admin)],
             CREATE_USER_PLAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, finish_create_user)],
         },
-        fallbacks=[CommandHandler("cancelar", cancel_conversation), CommandHandler("start", start)],
+        fallbacks=[
+            CommandHandler("cancelar", cancel_conversation),
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex(r"^[Cc]ancelar$"), cancel_conversation),
+        ],
         per_user=True
     )
     application.add_handler(create_user_conv_handler)
@@ -1024,7 +1035,11 @@ def main_admin() -> None:
             CREATE_PRODUCT_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_product_price)],
             CREATE_PRODUCT_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, finish_create_product), CommandHandler("skip", finish_create_product)],
         },
-        fallbacks=[CommandHandler("cancelar", cancel_conversation), CommandHandler("start", start)],
+        fallbacks=[
+            CommandHandler("cancelar", cancel_conversation),
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex(r"^[Cc]ancelar$"), cancel_conversation),
+        ],
         per_user=True
     )
     application.add_handler(product_conv_handler)
@@ -1035,7 +1050,11 @@ def main_admin() -> None:
         states={
             DELETE_PRODUCT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_delete_product)],
         },
-        fallbacks=[CommandHandler("cancelar", cancel_conversation), CommandHandler("start", start)],
+        fallbacks=[
+            CommandHandler("cancelar", cancel_conversation),
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex(r"^[Cc]ancelar$"), cancel_conversation),
+        ],
         per_user=True
     )
     application.add_handler(delete_product_conv_handler)
@@ -1047,7 +1066,11 @@ def main_admin() -> None:
             ADD_KEYS_PRODUCT: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_product_for_keys)],
             ADD_KEYS_LICENSES: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_licenses)],
         },
-        fallbacks=[CommandHandler("cancelar", cancel_conversation), CommandHandler("start", start)],
+        fallbacks=[
+            CommandHandler("cancelar", cancel_conversation),
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex(r"^[Cc]ancelar$"), cancel_conversation),
+        ],
         per_user=True
     )
     application.add_handler(keys_conv_handler)
