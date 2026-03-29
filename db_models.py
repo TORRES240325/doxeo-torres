@@ -65,13 +65,11 @@ class Compra(Base):
 # --- Conexión y Sesión (Lee DATABASE_URL de ENV) ---
 load_dotenv() 
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///socios_bot.db') 
+_is_postgres = DATABASE_URL.startswith('postgresql') or DATABASE_URL.startswith('postgres')
 ENGINE = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-    pool_recycle=300,
-    pool_timeout=30,
+    **({'pool_size': 5, 'max_overflow': 10, 'pool_recycle': 300, 'pool_timeout': 30} if _is_postgres else {})
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=ENGINE)
 
