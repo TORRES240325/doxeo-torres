@@ -6,6 +6,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
+from telegram.request import HTTPXRequest
 from sqlalchemy.exc import IntegrityError
 from db_models import Usuario, Producto, Key, Compra, get_session, inicializar_db 
 
@@ -953,7 +954,12 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main_admin() -> None:
     """Ejecuta el bot administrador."""
-    application = Application.builder().token(ADMIN_TOKEN_STR).build()
+    application = (
+        Application.builder()
+        .token(ADMIN_TOKEN_STR)
+        .request(HTTPXRequest(connect_timeout=20, read_timeout=20, write_timeout=20, pool_timeout=20))
+        .build()
+    )
     
     # LOGIN DE ADMINISTRADORES (maneja el comando /login)
     application.add_handler(CommandHandler("login", admin_login_prompt))
@@ -1061,10 +1067,6 @@ def main_admin() -> None:
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True,
-        connect_timeout=20,
-        read_timeout=20,
-        write_timeout=20,
-        pool_timeout=20,
     )
 
 

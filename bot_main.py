@@ -14,6 +14,7 @@ from urllib import request, error
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
 from telegram.error import BadRequest
+from telegram.request import HTTPXRequest
 from sqlalchemy.orm.exc import NoResultFound
 from db_models import Usuario, Producto, Key, Compra, inicializar_db, get_session 
 from dotenv import load_dotenv
@@ -2697,7 +2698,12 @@ async def handle_final_purchase(update: Update, context: ContextTypes.DEFAULT_TY
 
 def main() -> None:
     """Ejecuta el bot."""
-    application = Application.builder().token(TOKEN).build()
+    application = (
+        Application.builder()
+        .token(TOKEN)
+        .request(HTTPXRequest(connect_timeout=20, read_timeout=20, write_timeout=20, pool_timeout=20))
+        .build()
+    )
 
     # Handlers de comandos y botones de texto simples
     application.add_handler(CommandHandler("start", start))
@@ -2728,10 +2734,6 @@ def main() -> None:
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True,
-        connect_timeout=20,
-        read_timeout=20,
-        write_timeout=20,
-        pool_timeout=20,
     )
 
 
