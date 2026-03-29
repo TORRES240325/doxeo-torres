@@ -2725,17 +2725,10 @@ def main() -> None:
 
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
 
-    consecutive_conflicts = [0]
-
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         if isinstance(context.error, Conflict):
-            consecutive_conflicts[0] += 1
-            logger.warning(f"409 Conflict #{consecutive_conflicts[0]}: otra instancia corriendo, reintentando...")
-            if consecutive_conflicts[0] >= 15:
-                logger.error("409 Conflict persistente - reiniciando proceso para liberar instancia...")
-                sys.exit(1)
+            logger.warning("409 Conflict: instancia vieja aun activa, reintentando...")
             return
-        consecutive_conflicts[0] = 0
         logger.error("Excepción no capturada:", exc_info=context.error)
         tb = "".join(traceback.format_exception(None, context.error, context.error.__traceback__))
         logger.error(f"Traceback:\n{tb}")
